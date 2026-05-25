@@ -1,0 +1,498 @@
+openapi: "3.0.3"
+
+info:
+  title: Scoreplay Media API
+  description: |
+    REST API for managing tagged media assets (photos and videos).
+
+    ## Authentication
+
+    Every API endpoint (except `/health` and `/metrics`) requires a valid API key.
+    Keys are provisioned out-of-band via the `seed` binary.
+
+    Provide the key in either header:
+    - `X-API-Key: sp_<64hex>`
+    - `Authorization: Bearer sp_<64hex>`
+
+  version: "1.0.0"
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: "{baseUrl}"
+    description: API server
+    variables:
+      baseUrl:
+        default: http://localhost:8080
+        description: Base URL of the deployed API
+
+security:
+  - ApiKeyHeader: []
+  - BearerToken: []
+
+components:
+  securitySchemes:
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerToken:
+      type: http
+      scheme: bearer
+
+  schemas:
+    Tag:
+      type: object
+      required: [id, name, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        name:
+          type: string
+          example: "Lionel Messi"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-05-22T14:30:00Z"
+
+    Media:
+      type: object
+      required: [id, name, type, file_url, tags, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+        name:
+          type: string
+          example: "Goal vs PSG"
+        type:
+          type: string
+          enum: [photo, video]
+          example: "video"
+        file_url:
+          type: string
+          format: uri
+          example: "http://localhost:8080/uploads/7c9e6679-7425-40de-944b-e07fc1f90ae7.mp4"
+        tags:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-05-22T14:30:00Z"
+
+    TagPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tag"
+        next_cursor:
+          type: string
+          nullable: true
+          description: Opaque cursor for the next page. Null when no further pages exist.
+          example: "eyJ0IjoiMjAyNi0wNS0yMlQwMDowMDowMFoiLCJpIjoiM2ZhODVmNjQtNTcxNy00NTYyLWIzZmMtMmM5NjNmNjZhZmE2In0"
+
+    MediaPage:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Media"
+        next_cursor:
+          type: string
+          nullable: true
+          description: Opaque cursor for the next page. Null when no further pages exist.
+          example: "eyJ0IjoiMjAyNi0wNS0yMlQwMDowMDowMFoiLCJpIjoiN2M5ZTY2NzktNzQyNS00MGRlLTk0NGItZTA3ZmMxZjkwYWU3In0"
+
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_REQUEST
+            - VALIDATION_ERROR
+            - TAGS_NOT_FOUND
+            - UNSUPPORTED_FORMAT
+            - FILE_TOO_LARGE
+            - MEDIA_NOT_FOUND
+            - API_KEY_REQUIRED
+            - INVALID_API_KEY
+            - INTERNAL_ERROR
+          example: "MEDIA_NOT_FOUND"
+        message:
+          type: string
+          example: "media not found"
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+
+  parameters:
+    LimitParam:
+      name: limit
+      in: query
+      description: Maximum number of items per page (1–100, default 20).
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 20
+
+    CursorParam:
+      name: cursor
+      in: query
+      description: Opaque pagination cursor from the previous response's `next_cursor`. Omit for the first page.
+      required: false
+      schema:
+        type: string
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            missing:
+              value:
+                error:
+                  code: API_KEY_REQUIRED
+                  message: "API key required"
+            invalid:
+              value:
+                error:
+                  code: INVALID_API_KEY
+                  message: "invalid API key"
+
+    InternalError:
+      description: Unexpected server-side error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: INTERNAL_ERROR
+              message: "internal server error"
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns 200 OK when the server is up. No authentication required.
+      operationId: healthCheck
+      security: []
+      tags: [System]
+      responses:
+        "200":
+          description: Server is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+        "405":
+          description: Method not allowed.
+        "503":
+          description: Server is not ready to serve traffic.
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: Exposes Prometheus scrape endpoint. No authentication required.
+      operationId: prometheusMetrics
+      security: []
+      tags: [System]
+      responses:
+        "200":
+          description: Prometheus text format metrics.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "405":
+          description: Method not allowed.
+        "503":
+          description: Metrics endpoint unavailable.
+
+  /tags:
+    post:
+      summary: Create a tag
+      operationId: createTag
+      tags: [Tags]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  example: "Lionel Messi"
+      responses:
+        "201":
+          description: Tag created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tag"
+        "400":
+          description: Invalid JSON body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: INVALID_REQUEST
+                  message: "invalid JSON body"
+        "422":
+          description: Validation error (empty name).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: VALIDATION_ERROR
+                  message: "tag name cannot be empty"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      summary: List tags
+      description: Returns a paginated list of tags ordered by creation date (newest first).
+      operationId: listTags
+      tags: [Tags]
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/CursorParam"
+      responses:
+        "200":
+          description: Paginated tag list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagPage"
+        "400":
+          description: Invalid cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: INVALID_REQUEST
+                  message: "invalid cursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /media:
+    post:
+      summary: Upload media
+      description: |
+        Uploads a photo or video file with an optional set of tags.
+
+        File type is detected from **magic bytes**, not the filename extension.
+
+        **Supported formats:**
+
+        | Format | Type |
+        |--------|------|
+        | JPEG, PNG, GIF, WebP | photo |
+        | MP4/MOV, MKV/WebM, AVI | video |
+
+        **Size limits:** 20 MB for photos, 500 MB for videos.
+      operationId: createMedia
+      tags: [Media]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [name, file]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  description: Human-readable name for the media asset.
+                  example: "Goal vs PSG"
+                tags:
+                  type: string
+                  description: Comma-separated list of existing tag IDs to associate.
+                  example: "3fa85f64-5717-4562-b3fc-2c963f66afa6,7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                file:
+                  type: string
+                  format: binary
+                  description: The media file to upload.
+      responses:
+        "201":
+          description: Media created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Media"
+        "400":
+          description: Multipart form parse error or missing file.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missingFile:
+                  value:
+                    error:
+                      code: INVALID_REQUEST
+                      message: "file is required"
+                parseError:
+                  value:
+                    error:
+                      code: INVALID_REQUEST
+                      message: "failed to parse multipart form"
+        "422":
+          description: Validation or file error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                emptyName:
+                  value:
+                    error:
+                      code: VALIDATION_ERROR
+                      message: "media name cannot be empty"
+                tagsNotFound:
+                  value:
+                    error:
+                      code: TAGS_NOT_FOUND
+                      message: "one or more tag IDs not found"
+                unsupportedFormat:
+                  value:
+                    error:
+                      code: UNSUPPORTED_FORMAT
+                      message: "unsupported media format"
+                fileTooLarge:
+                  value:
+                    error:
+                      code: FILE_TOO_LARGE
+                      message: "file exceeds maximum allowed size"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      summary: List / search media
+      description: |
+        Returns a paginated list of media ordered by creation date (newest first).
+
+        When one or more `tag_id` parameters are provided, only media that have
+        **all** of the specified tags are returned (intersection / AND semantics).
+      operationId: listMedia
+      tags: [Media]
+      parameters:
+        - name: tag_id
+          in: query
+          description: |
+            Filter by tag ID. Repeatable — multiple values are ANDed (intersection).
+            Only media that have **all** given tags are returned.
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+          examples:
+            single:
+              value: ["3fa85f64-5717-4562-b3fc-2c963f66afa6"]
+            multiple:
+              value: ["3fa85f64-5717-4562-b3fc-2c963f66afa6", "7c9e6679-7425-40de-944b-e07fc1f90ae7"]
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/CursorParam"
+      responses:
+        "200":
+          description: Paginated media list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaPage"
+        "400":
+          description: Invalid cursor.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: INVALID_REQUEST
+                  message: "invalid cursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /media/{id}:
+    get:
+      summary: Get media by ID
+      operationId: getMedia
+      tags: [Media]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          example: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+      responses:
+        "200":
+          description: Media asset found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Media"
+        "404":
+          description: Media not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: MEDIA_NOT_FOUND
+                  message: "media not found"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"

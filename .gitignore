@@ -1,0 +1,6 @@
+uploads/
+bin/
+*.env
+.DS_Store
+scoreplay
+seed

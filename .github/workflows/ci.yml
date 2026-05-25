@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # ── Unit tests + vet ────────────────────────────────────────────────────────
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: go vet
+        run: go vet ./...
+      - name: Unit tests
+        run: go test -race -count=1 ./...
+
+  # ── Integration tests (real Postgres) ───────────────────────────────────────
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scoreplay
+          POSTGRES_PASSWORD: scoreplay
+          POSTGRES_DB: scoreplay
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Integration tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: scoreplay
+          DB_PASSWORD: scoreplay
+          DB_NAME: scoreplay
+        run: go test -tags integration -race -count=1 ./internal/repository/...
+
+  # ── Lint ────────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  # ── Build check ─────────────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build binaries
+        run: |
+          CGO_ENABLED=0 go build -ldflags="-s -w" -o /dev/null ./cmd/api
+          CGO_ENABLED=0 go build -ldflags="-s -w" -o /dev/null ./cmd/seed
